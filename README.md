@@ -1,2 +1,2 @@
-# soboru-store
-store interface with golang
+# kayat-store
+Directory-based Store Interface with Golang
