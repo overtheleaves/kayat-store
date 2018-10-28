@@ -3,13 +3,14 @@ package vfs
 import "time"
 
 type VirtualFileSystem interface {
-	NewFile(name string) 	File
+	NewFile(name string) 	(File, error)
 	Remove(name string) 	error
 	MkdirAll(path string) 	error
 	RemoveAll(path string)	error
 	OpenFile(name string)	(File, error)
 	Create(name string)	(File, error)
 	Mkdir(name string) error
+	FileExisted(name string)	bool
 }
 
 type File interface {
