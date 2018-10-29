@@ -5,14 +5,13 @@ import "time"
 type VirtualFileSystem interface {
 	NewFile(context *Context, pathname string) 	(File, error)
 	Remove(context *Context, pathname string) 	error
-	MkdirAll(context *Context, pathname string) 	error
-	RemoveAll(context *Context, pathname string)	error
 	OpenFile(context *Context, name string)	(File, error)
 	Create(context *Context, name string)	(File, error)
 	Mkdir(context *Context, pathname string) error
 	FileExisted(context *Context, name string)	bool
 	ChangeDirectory(context *Context, pathname string) error
 	Context() *Context
+	ListSegments(context *Context, pathname string) ([]FileStat, error)
 }
 
 type File interface {
@@ -28,4 +27,5 @@ type FileStat interface {
 	Size() int64
 	ModTime() time.Time
 	IsDir() bool
+	Immutable() FileStat
 }

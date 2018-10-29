@@ -3,7 +3,7 @@ package vfs
 import "strings"
 
 const (
-	DEFAULT_DELIMITER = "/"
+	DEFAULT_PATH_DELIMITER = "/"
 )
 type Path struct {
 	paths []string
@@ -24,9 +24,9 @@ type pathIterator struct {
 func NewPath(path string) *Path {
 	newPath := &Path{
 		paths: make([]string, 0),
-		delimiter: DEFAULT_DELIMITER,
+		delimiter: DEFAULT_PATH_DELIMITER,
 	}
-	splits := strings.Split(path, "/")
+	splits := strings.Split(path, DEFAULT_PATH_DELIMITER)
 
 	for _, p := range splits {
 		if p != "" {
@@ -56,7 +56,7 @@ func NewPathWithDelimiter(path string, delimiter string) *Path {
 		}
 	}
 
-	if strings.HasSuffix(path, delimiter) {
+	if strings.HasSuffix(path, delimiter) || len(newPath.paths) == 0 {
 		newPath.filename = ""
 	} else {
 		newPath.filename = newPath.paths[len(newPath.paths) - 1]
