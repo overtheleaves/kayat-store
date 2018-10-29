@@ -2,9 +2,13 @@ package vfs
 
 import "strings"
 
+const (
+	DEFAULT_DELIMITER = "/"
+)
 type Path struct {
 	paths []string
 	filename string
+	delimiter string
 }
 
 type Iterator interface {
@@ -18,7 +22,10 @@ type pathIterator struct {
 }
 
 func NewPath(path string) *Path {
-	newPath := &Path{ paths: make([]string, 0)}
+	newPath := &Path{
+		paths: make([]string, 0),
+		delimiter: DEFAULT_DELIMITER,
+	}
 	splits := strings.Split(path, "/")
 
 	for _, p := range splits {
@@ -27,7 +34,29 @@ func NewPath(path string) *Path {
 		}
 	}
 
-	if strings.HasSuffix(path, "/") {
+	if strings.HasSuffix(path, newPath.delimiter) {
+		newPath.filename = ""
+	} else {
+		newPath.filename = newPath.paths[len(newPath.paths) - 1]
+	}
+
+	return newPath
+}
+
+func NewPathWithDelimiter(path string, delimiter string) *Path {
+	newPath := &Path{
+		paths: make([]string, 0),
+		delimiter: delimiter,
+	}
+	splits := strings.Split(path, delimiter)
+
+	for _, p := range splits {
+		if p != "" {
+			newPath.paths = append(newPath.paths, p)
+		}
+	}
+
+	if strings.HasSuffix(path, delimiter) {
 		newPath.filename = ""
 	} else {
 		newPath.filename = newPath.paths[len(newPath.paths) - 1]

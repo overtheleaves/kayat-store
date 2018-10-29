@@ -82,3 +82,45 @@ func TestFileNode_getFile(t *testing.T) {
 	assert.Equal(t, f, n.getFile(p1, 0))
 	assert.Nil(t, n.getFile(p2, 0))
 }
+
+func TestFileNode_removeFile(t *testing.T) {
+	p1 := NewPath("test/path/add1")
+	n := &fileNode{file: newVirtualDirectory("/")}
+	f := newVirtualFile("add1")
+	n.addFile(p1, f, 0)
+
+	assert.NotNil(t, n.removeFile(NewPath("test/path/add2"), 0))
+	assert.Nil(t, n.removeFile(p1, 0))
+	assert.Nil(t, n.getFile(p1, 0))
+}
+
+func TestNewMemoryFileSystem(t *testing.T) {
+	fs1, err1 := NewMemoryFileSystem("/mount")
+	assert.Nil(t, err1)
+	assert.NotNil(t, fs1)
+
+	fs2, err2 := NewMemoryFileSystem("/mount")
+	assert.Nil(t, fs2)
+	assert.NotNil(t, err2)	// file exists error
+}
+
+func TestMemFileSystem_NewFile(t *testing.T) {
+
+}
+
+func TestMemFileSystem_Remove(t *testing.T) {
+
+}
+
+func TestMemFileSystem_FileExisted(t *testing.T) {
+
+}
+
+func TestMemFileSystem_MkdirAll(t *testing.T) {
+	fs, _ := NewMemoryFileSystem("/mount1")
+	context := fs.Context()
+
+	assert.Nil(t, fs.MkdirAll(context, "test/mkdirall/path"))
+	assert.NotNil(t, fs.MkdirAll(context, "test/mkdirall/path"))	// file exists error
+	assert.True(t, fs.FileExisted(context, "test/mkdirall/path"))
+}

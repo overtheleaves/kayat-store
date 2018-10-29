@@ -3,19 +3,24 @@ package vfs
 import (
 	"time"
 	"sync"
-	"fmt"
 	"strings"
 	"strconv"
+	"errors"
 )
 
 var (
-	invalidOffsetErr = fmt.Errorf("invalid offset error")
-	illegalFileNameErr = fmt.Errorf("illegal file name")
-	noSuchFileOrDirectoryErr = fmt.Errorf("no such file or directory")
-	alreadyMountedErr = fmt.Errorf("filesystem is already mounted")
-	fileExistsErr = fmt.Errorf("File exists")
+	invalidOffsetErr = errors.New("invalid offset error")
+	illegalFileNameErr = errors.New("illegal file name")
+	noSuchFileOrDirectoryErr = errors.New("no such file or directory")
+	alreadyMountedErr = errors.New("filesystem is already mounted")
+	fileExistsErr = errors.New("file exists")
+	invalidContextErr = errors.New("invalid context")
 
 	memFileSystems = make(map[string]*memFileSystem)
+)
+
+const (
+	DEFAULT_PATH_DELIMITER = "/"
 )
 
 type fileNode struct {
@@ -25,7 +30,6 @@ type fileNode struct {
 
 type virtualFile struct {
 	mu sync.RWMutex
-	children []File
 	data     []byte
 	stat 	*memFileStat
 }
@@ -41,6 +45,8 @@ type memFileSystem struct {
 	mount 	*Path
 	rootNode *fileNode
 	mu sync.Mutex
+	pwd map[*Context]*fileNode
+	pathDelimiter string
 }
 
 type MemFileSystemError struct {
@@ -53,6 +59,10 @@ type MemFileError struct {
 	Err error
 	Op string
 	Offset int64
+}
+
+type Context struct {
+
 }
 
 func (e *MemFileSystemError) Error() string {
@@ -98,22 +108,66 @@ func (n *fileNode) addFile(path *Path, file File, i int) {
 	}
 }
 
-func (n *fileNode) getFile(path *Path, i int) File {
+func (n *fileNode) addDirectory(path *Path, i int) {
 	if i > path.Len() - 1 {
-		return n.file
+		return
+	}
+
+	dir := path.NthPath(i)
+	if n.children[dir] == nil {
+		n.children[dir] = &fileNode{
+			file: newVirtualDirectory(dir),
+		}
+	}
+
+	n.children[dir].addDirectory(path, i+1)
+}
+
+func (n *fileNode) getFile(path *Path, i int) File {
+	node := n.getFileNode(path, i)
+	if node != nil {
+		return node.file
+	}
+	return nil
+}
+
+func (n *fileNode) getFileNode(path *Path, i int) *fileNode {
+	if i > path.Len() - 1 {
+		return n
 	}
 
 	dir := path.NthPath(i)
 	if n.children[dir] == nil {
 		return nil
 	} else {
-		return n.children[dir].getFile(path, i+1)
+		return n.children[dir].getFileNode(path, i+1)
+	}
+}
+
+func (n *fileNode) removeFile(path *Path, i int) error {
+	if i > path.Len() - 1 || i < 0 {
+		// invalid index i
+		return noSuchFileOrDirectoryErr
+	}
+
+	dir := path.NthPath(i)
+	if n.children[dir] == nil {
+		// no such file or directory
+		return noSuchFileOrDirectoryErr
+	} else if i == path.Len() - 1 {
+		// remove target
+		n := n.children[dir]
+		n.children[dir] = nil
+		n.file = nil
+		return nil
+	} else {
+		return n.children[dir].removeFile(path, i+1)
 	}
 }
 
 func NewMemoryFileSystem(mountOnPath string) (VirtualFileSystem, error) {
 
-	if strings.HasSuffix(mountOnPath, "/") {
+	if strings.HasSuffix(mountOnPath, DEFAULT_DELIMITER) {
 		mountOnPath = mountOnPath[:len(mountOnPath) - 1]
 	}
 
@@ -124,8 +178,9 @@ func NewMemoryFileSystem(mountOnPath string) (VirtualFileSystem, error) {
 	mfs := &memFileSystem{
 		mount: NewPath(mountOnPath),
 		rootNode: &fileNode{
-			file: newVirtualDirectory("/"),
+			file: newVirtualDirectory(DEFAULT_DELIMITER),
 		},
+		pathDelimiter: DEFAULT_DELIMITER,
 	}
 
 	memFileSystems[mountOnPath] = mfs
@@ -226,55 +281,112 @@ func (f *virtualFile) WriteAt(b []byte, off int64) (n int, err error) {
 	return n, nil
 }
 
-func (fs *memFileSystem) NewFile(name string) (File, error) {
-	path := NewPath(name)
+func (fs *memFileSystem) NewFile(context *Context, pathname string) (File, error) {
+	path := NewPath(pathname)
 	filename := path.FileName()
 
 	if filename == "" {
-		return nil, &MemFileSystemError{Err: illegalFileNameErr, Op: "NewFile", Path: name}
+		return nil, &MemFileSystemError{Err: illegalFileNameErr, Op: "NewFile", Path: pathname}
 	}
 
 	var err error
 	fs.mu.Lock()
 
-	file := fs.rootNode.getFile(path, 0)
+	wd := fs.workingDirectoryNode(context, pathname)
+	file := wd.getFile(path, 0)
 	if file == nil {
 		// create new file
 		// if file is already existed (file != nil), then just return the file
 		file = newVirtualFile(filename)
 		fs.rootNode.addFile(path, file, 0)
 	} else {
-		err = &MemFileSystemError{Err: fileExistsErr, Op: "NewFile", Path: name}
+		err = &MemFileSystemError{Err: fileExistsErr, Op: "NewFile", Path: pathname}
 	}
 	fs.mu.Unlock()
 
 	return file, err
 }
 
-func (fs *memFileSystem) FileExisted(name string) bool {
-	return fs.rootNode.getFile(NewPath(name), 0) != nil
+func (fs *memFileSystem) FileExisted(context *Context, pathname string) bool {
+	wd := fs.workingDirectoryNode(context, pathname)
+	if wd == nil {
+		return false
+	} else {
+		return wd.getFile(NewPath(pathname), 0) != nil
+	}
 }
 
-func (fs *memFileSystem) Remove(name string) error {
+func (fs *memFileSystem) Remove(context *Context, pathname string) error {
+	wd := fs.workingDirectoryNode(context, pathname)
+	return wd.removeFile(NewPath(pathname), 0)
+}
+
+func (fs *memFileSystem) MkdirAll(context *Context, pathname string) error {
+	path := NewPath(pathname)
+
+	var err error
+	fs.mu.Lock()
+
+	wd := fs.workingDirectoryNode(context, pathname)
+	file := wd.getFile(path, 0)
+	if file == nil {
+		// create new directory
+		fs.rootNode.addDirectory(path, 0)
+	} else {
+		err = &MemFileSystemError{Err: fileExistsErr, Op: "MkdirAll", Path: pathname}
+	}
+	fs.mu.Unlock()
+
+	return err
+}
+
+func (fs *memFileSystem) RemoveAll(context *Context, pathname string)	error {
 	return nil
 }
 
-func (fs *memFileSystem) MkdirAll(path string) error {
-	return nil
-}
-
-func (fs *memFileSystem) RemoveAll(path string)	error {
-	return nil
-}
-
-func (fs *memFileSystem) OpenFile(name string) (File, error) {
+func (fs *memFileSystem) OpenFile(context *Context, name string) (File, error) {
 	return nil, nil
 }
 
-func (fs *memFileSystem) Create(name string) (File, error) {
-	return fs.NewFile(name)
+func (fs *memFileSystem) Create(context *Context, name string) (File, error) {
+	return fs.NewFile(context, name)
 }
 
-func (fs *memFileSystem) Mkdir(name string) error {
+func (fs *memFileSystem) Mkdir(context *Context, name string) error {
 	return nil
+}
+
+func (fs *memFileSystem) Context() *Context {
+	context := &Context{}
+	fs.pwd[context] = fs.rootNode
+	return context
+}
+
+func (fs *memFileSystem) ChangeDirectory(context *Context, pathname string) error {
+	wd := fs.workingDirectoryNode(context, pathname)
+	if wd == nil {
+		return &MemFileSystemError{Err: invalidContextErr, Op: "ChangeDirectory", Path: pathname}
+	} else {
+		n := wd.getFileNode(NewPath(pathname), 0)
+		if n != nil {
+			fs.pwd[context] = n
+			return nil
+		} else {
+			return &MemFileSystemError{Err: noSuchFileOrDirectoryErr, Op: "ChangeDirectory", Path: pathname}
+		}
+	}
+}
+
+func (fs *memFileSystem) PresentWorkingDirectoryNode(context *Context) *fileNode {
+	return fs.pwd[context]
+}
+
+func (fs *memFileSystem) workingDirectoryNode(context *Context, pathname string) *fileNode {
+	// if pathname starts with path delimiter (like "/"),
+	// then start on root node
+	if strings.HasPrefix(pathname, fs.pathDelimiter) {
+		return fs.rootNode
+	} else {
+		return fs.PresentWorkingDirectoryNode(context)
+	}
 }
