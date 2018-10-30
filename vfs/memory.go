@@ -16,6 +16,7 @@ var (
 	fileExistsErr = errors.New("file exists")
 	invalidContextErr = errors.New("invalid context")
 	invalidMountOnPathErr = errors.New("invalid mount path. mount path should be absolute path")
+	fileReadWriteErr = errors.New("cannot open file to read/write")
 
 	memFileSystems = make(map[string]*memFileSystem)
 )
@@ -27,7 +28,8 @@ type fileNode struct {
 
 type virtualFile struct {
 	mu sync.RWMutex
-	data     []byte
+	deleted bool
+	data    []byte
 	stat 	*memFileStat
 }
 
@@ -41,7 +43,6 @@ type memFileStat struct {
 type memFileSystem struct {
 	mount 	*Path
 	rootNode *fileNode
-	mu sync.RWMutex
 	pwd map[*Context]*fileNode
 	pathDelimiter string
 }
@@ -179,6 +180,7 @@ func (n *fileNode) removeAllFiles() {
 	}
 
 	n.children = nil
+	n.file.Delete()
 	n.file = nil
 }
 
@@ -248,6 +250,10 @@ func (f *virtualFile) Read(b []byte) (n int, err error) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
+	if f.deleted {
+		return 0, &MemFileSystemError{Err: fileReadWriteErr, Op: "Read", Path: ""}
+	}
+
 	if len(b) < len(f.data) {
 		n = len(b)
 	} else {
@@ -261,6 +267,10 @@ func (f *virtualFile) Read(b []byte) (n int, err error) {
 func (f *virtualFile) ReadAt(b []byte, off int64) (n int, err error) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
+
+	if f.deleted {
+		return 0, &MemFileSystemError{Err: fileReadWriteErr, Op: "ReadAt", Path: ""}
+	}
 
 	if f.stat.Size() <= off {
 		// invalid offset
@@ -281,6 +291,10 @@ func (f *virtualFile) Write(b []byte) (n int, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	if f.deleted {
+		return 0, &MemFileSystemError{Err: fileReadWriteErr, Op: "Write", Path: ""}
+	}
+
 	n = len(b)
 
 	if f.stat.Size() <= int64(len(b)) {
@@ -297,6 +311,10 @@ func (f *virtualFile) WriteAt(b []byte, off int64) (n int, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	if f.deleted {
+		return 0, &MemFileSystemError{Err: fileReadWriteErr, Op: "WriteAt", Path: ""}
+	}
+
 	n = len(b)
 	// expand data and copy original data into new data pool
 	if f.stat.Size() < off + int64(len(b)) {
@@ -311,6 +329,14 @@ func (f *virtualFile) WriteAt(b []byte, off int64) (n int, err error) {
 	return n, nil
 }
 
+func (f *virtualFile) Delete() {
+	f.mu.Lock()
+	f.deleted = true
+	f.data = nil
+	f.stat = nil
+	f.mu.Unlock()
+}
+
 func (fs *memFileSystem) NewFile(context *Context, pathname string) (File, error) {
 	path := NewPathWithDelimiter(pathname, fs.pathDelimiter)
 	filename := path.FileName()
@@ -320,7 +346,6 @@ func (fs *memFileSystem) NewFile(context *Context, pathname string) (File, error
 	}
 
 	var err error
-	fs.mu.Lock()
 
 	wd := fs.workingDirectoryNode(context, pathname)
 	file := wd.getFile(path, 0)
@@ -332,7 +357,6 @@ func (fs *memFileSystem) NewFile(context *Context, pathname string) (File, error
 	} else {
 		err = &MemFileSystemError{Err: fileExistsErr, Op: "NewFile", Path: pathname}
 	}
-	fs.mu.Unlock()
 
 	return file, err
 }
@@ -369,7 +393,6 @@ func (fs *memFileSystem) Mkdir(context *Context, pathname string) error {
 	path := NewPathWithDelimiter(pathname, fs.pathDelimiter)
 
 	var err error
-	fs.mu.Lock()
 
 	wd := fs.workingDirectoryNode(context, pathname)
 	file := wd.getFile(path, 0)
@@ -379,7 +402,6 @@ func (fs *memFileSystem) Mkdir(context *Context, pathname string) error {
 	} else {
 		err = &MemFileSystemError{Err: fileExistsErr, Op: "MkdirAll", Path: pathname}
 	}
-	fs.mu.Unlock()
 
 	return err
 }

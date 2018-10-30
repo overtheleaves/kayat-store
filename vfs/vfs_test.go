@@ -152,8 +152,8 @@ func TestMemFileSystem_RemoveAll(t *testing.T) {
 	fs, _ := NewMemoryFileSystem("/mount_removeall")
 	context := fs.Context()
 
-	fs.NewFile(context, "/test/path/removefile1")
-	fs.NewFile(context, "/test/path/removefile2")
+	f1, _ := fs.NewFile(context, "/test/path/removefile1")
+	f2, _ := fs.NewFile(context, "/test/path/removefile2")
 
 	err := fs.Remove(context, "/test/path")
 
@@ -162,6 +162,12 @@ func TestMemFileSystem_RemoveAll(t *testing.T) {
 	assert.False(t, fs.FileExisted(context, "/test/path/removefile2"))
 	assert.False(t, fs.FileExisted(context, "/test/path/"))
 	assert.True(t, fs.FileExisted(context, "/test/"))
+
+	_, ferr1 := f1.Write([]byte("aaaa"))
+	_, ferr2 := f2.WriteAt([]byte("aaaa"), 0)
+
+	assert.NotNil(t, ferr1)	// cannot open file to read/write error
+	assert.NotNil(t, ferr2)	// cannot open file to read/write error
 }
 
 func TestMemFileSystem_Mkdir(t *testing.T) {
