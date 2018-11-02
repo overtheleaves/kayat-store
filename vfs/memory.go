@@ -4,19 +4,22 @@ import (
 	"time"
 	"sync"
 	"strings"
-	"strconv"
 	"errors"
+	"fmt"
 )
 
 var (
-	invalidOffsetErr = errors.New("invalid offset error")
-	illegalFileNameErr = errors.New("illegal file name")
+	invalidOffsetErr         = errors.New("invalid offset error")
+	illegalFileNameErr       = errors.New("illegal file name")
 	noSuchFileOrDirectoryErr = errors.New("no such file or directory")
-	alreadyMountedErr = errors.New("filesystem is already mounted")
-	fileExistsErr = errors.New("file exists")
-	invalidContextErr = errors.New("invalid context")
-	invalidMountOnPathErr = errors.New("invalid mount path. mount path should be absolute path")
-	fileReadWriteErr = errors.New("cannot open file to read/write")
+	alreadyMountedErr        = errors.New("filesystem is already mounted")
+	fileExistsErr            = errors.New("file exists")
+	invalidContextErr        = errors.New("invalid context")
+	invalidMountOnPathErr    = errors.New("invalid mount path. mount path should be absolute path")
+	fileReadWriteErr         = errors.New("cannot open file to read/write")
+	overlappedMountedErr     = func(path string) error {
+		return errors.New(fmt.Sprintf("mount path cannot be sub/parent directory of already mounted file system %s", path))
+	}
 
 	memFileSystems = make(map[string]*memFileSystem)
 )
@@ -53,22 +56,12 @@ type MemFileSystemError struct {
 	Path string
 }
 
-type MemFileError struct {
-	Err error
-	Op string
-	Offset int64
-}
-
 type Context struct {
 
 }
 
 func (e *MemFileSystemError) Error() string {
 	return e.Op + ": " + e.Path + ": " + e.Err.Error()
-}
-
-func (e *MemFileError) Error() string {
-	return e.Op + ": " + e.Err.Error() + ": (offset: " + strconv.FormatInt(e.Offset, 10) + ")"
 }
 
 func (m *memFileStat) Name() string {
@@ -204,6 +197,11 @@ func NewMemoryFileSystemWithPathDelimiter(mountOnPath string, delimiter string) 
 		mountOnPath = mountOnPath[:len(mountOnPath) - 1]
 	}
 
+	overlapped, parentPath := isOverlappedPath(mountOnPath, delimiter)
+	if overlapped {
+		return nil, &MemFileSystemError{Err: overlappedMountedErr(parentPath), Op: "mount", Path: mountOnPath}
+	}
+
 	if memFileSystems[mountOnPath] != nil {
 		return nil, &MemFileSystemError{Err: alreadyMountedErr, Op: "mount", Path: mountOnPath}
 	}
@@ -218,6 +216,29 @@ func NewMemoryFileSystemWithPathDelimiter(mountOnPath string, delimiter string) 
 	memFileSystems[mountOnPath] = mfs
 
 	return mfs, nil
+}
+
+// return true, if path is sub/parent directory of mfs that has already mounted.
+func isOverlappedPath(path string, delimiter string) (bool, string) {
+	for p := range memFileSystems {
+		// path is sub directory of already mounted path?
+		if strings.HasPrefix(path, p) {
+			path = strings.TrimPrefix(path, p)
+			if strings.HasPrefix(path, delimiter) {
+				return true, p
+			}
+		}
+
+		// path is parent directory of already mounted path?
+		if strings.HasPrefix(p, path) {
+			suffix := strings.TrimPrefix(p, path)
+			if strings.HasPrefix(suffix, delimiter) {
+				return true, p
+			}
+		}
+	}
+
+	return false, ""
 }
 
 func newVirtualDirectory(name string) File {
@@ -274,7 +295,7 @@ func (f *virtualFile) ReadAt(b []byte, off int64) (n int, err error) {
 
 	if f.stat.Size() <= off {
 		// invalid offset
-		return 0, &MemFileError{Err: invalidOffsetErr, Op: "ReadAt", Offset: off}
+		return 0, &MemFileSystemError{Err: invalidOffsetErr, Op: "ReadAt", Path: ""}
 	}
 
 	if int64(len(b)) < f.stat.Size() - off {
@@ -447,7 +468,7 @@ func (fs *memFileSystem) PresentWorkingDirectoryNode(context *Context) *fileNode
 }
 
 func (fs *memFileSystem) workingDirectoryNode(context *Context, pathname string) *fileNode {
-	// if pathname starts with path delimiter (like "/"),
+	// if pathname starts with path pathDelimiter (like "/"),
 	// then start on root node
 	if strings.HasPrefix(pathname, fs.pathDelimiter) {
 		return fs.rootNode

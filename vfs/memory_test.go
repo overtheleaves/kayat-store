@@ -95,17 +95,25 @@ func TestFileNode_removeFile(t *testing.T) {
 }
 
 func TestNewMemoryFileSystem(t *testing.T) {
-	fs1, err1 := NewMemoryFileSystem("/mount")
+	fs1, err1 := NewMemoryFileSystem("/root/mount")
 	assert.Nil(t, err1)
 	assert.NotNil(t, fs1)
 
-	fs2, err2 := NewMemoryFileSystem("/mount")
+	fs2, err2 := NewMemoryFileSystem("/root/mount")
 	assert.Nil(t, fs2)
 	assert.NotNil(t, err2)	// file exists error
 
 	fs3, err3 := NewMemoryFileSystem("mount")
 	assert.Nil(t, fs3)
 	assert.NotNil(t, err3)	// invalid path error
+
+	fs4, err4 := NewMemoryFileSystem("/root/mount/sub")
+	assert.Nil(t, fs4)
+	assert.NotNil(t, err4)	// overlapped err
+
+	fs5, err5 := NewMemoryFileSystem("/root")
+	assert.Nil(t, fs5)
+	assert.NotNil(t, err5)	// overlapped err
 }
 
 func TestMemFileSystem_NewFile(t *testing.T) {

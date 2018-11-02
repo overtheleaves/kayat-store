@@ -9,6 +9,7 @@ type Path struct {
 	paths []string
 	filename string
 	delimiter string
+	pathstr string
 }
 
 type Iterator interface {
@@ -22,25 +23,7 @@ type pathIterator struct {
 }
 
 func NewPath(path string) *Path {
-	newPath := &Path{
-		paths: make([]string, 0),
-		delimiter: DEFAULT_PATH_DELIMITER,
-	}
-	splits := strings.Split(path, DEFAULT_PATH_DELIMITER)
-
-	for _, p := range splits {
-		if p != "" {
-			newPath.paths = append(newPath.paths, p)
-		}
-	}
-
-	if strings.HasSuffix(path, newPath.delimiter) {
-		newPath.filename = ""
-	} else {
-		newPath.filename = newPath.paths[len(newPath.paths) - 1]
-	}
-
-	return newPath
+	return NewPathWithDelimiter(path, DEFAULT_PATH_DELIMITER)
 }
 
 func NewPathWithDelimiter(path string, delimiter string) *Path {
@@ -62,6 +45,9 @@ func NewPathWithDelimiter(path string, delimiter string) *Path {
 		newPath.filename = newPath.paths[len(newPath.paths) - 1]
 	}
 
+	newPath.pathstr = strings.TrimSuffix(path, newPath.filename)
+	newPath.pathstr = strings.TrimSuffix(newPath.pathstr, delimiter)
+
 	return newPath
 }
 
@@ -79,6 +65,14 @@ func (p *Path) FileName() string {
 
 func (p *Path) Iterator() Iterator {
 	return newPathIterator(p)
+}
+
+func (p *Path) FullPathString() string {
+	return p.pathstr + p.delimiter +  p.filename
+}
+
+func (p *Path) PathString() string {
+	return p.pathstr
 }
 
 func newPathIterator(path *Path) *pathIterator {
