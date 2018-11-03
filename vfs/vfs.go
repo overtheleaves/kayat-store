@@ -8,7 +8,7 @@ type VirtualFileSystem interface {
 	OpenFile(context *Context, name string)	(File, error)
 	Create(context *Context, name string)	(File, error)
 	Mkdir(context *Context, pathname string) error
-	FileExisted(context *Context, name string)	bool
+	FileExisted(context *Context, pathname string)	bool
 	ChangeDirectory(context *Context, pathname string) error
 	Context() *Context
 	ListSegments(context *Context, pathname string) ([]FileStat, error)

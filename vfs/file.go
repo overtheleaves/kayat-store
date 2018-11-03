@@ -78,17 +78,20 @@ func (w *wrapperFileSystem) NewFile(context *Context, pathname string) (File, er
 		return nil, &MemFileSystemError{Err: illegalFileNameErr, Op: "NewFile", Path: pathname}
 	}
 
-	wd := w.workingDirectory(context, pathname)
+	fullPath := w.workingFullPathString(context, pathname)
+	path := strings.TrimSuffix(fullPath, filename)
 
 	// is directory existed?
-	if !isDirectoryExist(wd + w.pathDelimiter + filepath.PathString()) {
-		err := os.MkdirAll(wd + w.pathDelimiter + filepath.PathString(), os.ModePerm)
+	if !isDirectoryExist(path) {
+		// if not, create directory first
+		err := os.MkdirAll(path, os.ModePerm)
 		if err != nil {
 			return nil, &WrapperFileSystemError{Err: err, Op: "NewFile", Path: pathname}
 		}
 	}
 
-	f, err := os.Create(wd + w.pathDelimiter + pathname)
+	// file create
+	f, err := os.Create(fullPath)
 	if f != nil {
 		defer f.Close()
 	}
@@ -103,27 +106,63 @@ func (w *wrapperFileSystem) NewFile(context *Context, pathname string) (File, er
 }
 
 func (w *wrapperFileSystem) Remove(context *Context, pathname string) error {
-	return nil
+
+	// check if file existed.
+	if !w.FileExisted(context, pathname) {
+		return &WrapperFileSystemError{Err: noSuchFileOrDirectoryErr, Op: "Remove", Path: pathname}
+	}
+
+	// get context's working directory
+	fullPath := w.workingFullPathString(context, pathname)
+
+	err := os.RemoveAll(fullPath)
+
+	if err != nil {
+		return &WrapperFileSystemError{Err: err, Op: "Remove", Path: pathname}
+	} else {
+		return nil
+	}
 }
 
-func (w *wrapperFileSystem) OpenFile(context *Context, name string)	(File, error) {
-	return nil, nil
+func (w *wrapperFileSystem) OpenFile(context *Context, pathname string)	(File, error) {
+	fullPath := w.workingFullPathString(context, pathname)
+	f, err := os.OpenFile(fullPath, os.O_RDWR, os.ModeAppend)
+
+	if err != nil {
+		return nil, &WrapperFileSystemError{Err: err, Op: "OpenFile", Path: pathname}
+	} else {
+		return newWrapperFile(f), nil
+	}
 }
 
-func (w *wrapperFileSystem) Create(context *Context, name string) (File, error) {
-	return nil, nil
+func (w *wrapperFileSystem) Create(context *Context, pathname string) (File, error) {
+	return w.NewFile(context, pathname)
 }
 
 func (w *wrapperFileSystem) Mkdir(context *Context, pathname string) error {
 	return nil
 }
 
-func (w *wrapperFileSystem) FileExisted(context *Context, name string) bool {
-	return true
+func (w *wrapperFileSystem) FileExisted(context *Context, pathname string) bool {
+	fullPath := w.workingFullPathString(context, pathname)
+	_, err := os.Stat(fullPath)
+	return !os.IsNotExist(err)
 }
 
 func (w *wrapperFileSystem) ChangeDirectory(context *Context, pathname string) error {
-	return nil
+
+	if w.pwd[context] == nil {
+		return &WrapperFileSystemError{ Err: invalidContextErr, Op: "ChangeDirectory", Path: pathname}
+	}
+
+	if !w.FileExisted(context, pathname) {
+		return &WrapperFileSystemError{Err: noSuchFileOrDirectoryErr, Op: "ChangeDirectory", Path: pathname}
+	} else {
+		fullPathString := w.workingFullPathString(context, pathname)
+		fullPathString = strings.TrimSuffix(fullPathString, w.pathDelimiter)
+		w.pwd[context] = NewPathWithDelimiter(fullPathString, w.pathDelimiter)
+		return nil
+	}
 }
 
 func (w *wrapperFileSystem) Context() *Context {
@@ -144,6 +183,7 @@ func (w *wrapperFileSystem) PresentWorkingDirectory(context *Context) string {
 		return ""
 	}
 }
+
 func (w *wrapperFileSystem) workingDirectory(context *Context, pathname string) string {
 	// if pathname starts with path pathDelimiter (like "/"),
 	// then start on mount root
@@ -152,6 +192,13 @@ func (w *wrapperFileSystem) workingDirectory(context *Context, pathname string) 
 	} else {
 		return w.PresentWorkingDirectory(context)
 	}
+}
+
+func (w *wrapperFileSystem) workingFullPathString(context *Context, pathname string) string {
+	wd := w.workingDirectory(context, pathname)
+
+	pathname = strings.TrimPrefix(pathname, w.pathDelimiter)
+	return wd + w.pathDelimiter + pathname
 }
 
 func isDirectoryExist(path string) bool {

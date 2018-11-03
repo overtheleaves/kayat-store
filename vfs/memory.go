@@ -406,8 +406,8 @@ func (fs *memFileSystem) OpenFile(context *Context, pathname string) (File, erro
 	}
 }
 
-func (fs *memFileSystem) Create(context *Context, name string) (File, error) {
-	return fs.NewFile(context, name)
+func (fs *memFileSystem) Create(context *Context, pathname string) (File, error) {
+	return fs.NewFile(context, pathname)
 }
 
 func (fs *memFileSystem) Mkdir(context *Context, pathname string) error {
