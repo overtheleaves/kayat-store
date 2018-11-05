@@ -9,7 +9,8 @@ type Path struct {
 	paths []string
 	filename string
 	delimiter string
-	pathstr string
+	str 	string
+	isRoot 	bool
 }
 
 type Iterator interface {
@@ -31,6 +32,16 @@ func NewPathWithDelimiter(path string, delimiter string) *Path {
 		paths: make([]string, 0),
 		delimiter: delimiter,
 	}
+
+	// flag to indicate root path
+	if strings.HasPrefix(path, delimiter) {
+		newPath.isRoot = true
+	}
+
+	// path not starts/ends with delimiter
+	path = strings.TrimPrefix(path, delimiter)
+	path = strings.TrimSuffix(path, delimiter)
+
 	splits := strings.Split(path, delimiter)
 
 	for _, p := range splits {
@@ -45,10 +56,26 @@ func NewPathWithDelimiter(path string, delimiter string) *Path {
 		newPath.filename = newPath.paths[len(newPath.paths) - 1]
 	}
 
-	newPath.pathstr = strings.TrimSuffix(path, newPath.filename)
-	newPath.pathstr = strings.TrimSuffix(newPath.pathstr, delimiter)
+	if newPath.isRoot {
+		newPath.str = strings.Join(newPath.paths, delimiter)
+		newPath.str = delimiter + newPath.str
+	} else {
+		newPath.str = strings.Join(newPath.paths, delimiter)
+	}
 
 	return newPath
+}
+
+func (p *Path) Concat(other *Path) *Path {
+	if other != nil {
+		if other.isRoot || p.String() == "/" {
+			return NewPathWithDelimiter(p.String() + other.String(), p.delimiter)
+		} else {
+			return NewPathWithDelimiter(p.String() + p.delimiter + other.String(), p.delimiter)
+		}
+	} else {
+		return NewPathWithDelimiter(p.String(), p.delimiter)
+	}
 }
 
 func (p *Path) Len() int {
@@ -67,12 +94,8 @@ func (p *Path) Iterator() Iterator {
 	return newPathIterator(p)
 }
 
-func (p *Path) FullPathString() string {
-	return p.pathstr + p.delimiter +  p.filename
-}
-
-func (p *Path) PathString() string {
-	return p.pathstr
+func (p *Path) String() string {
+	return p.str
 }
 
 func newPathIterator(path *Path) *pathIterator {

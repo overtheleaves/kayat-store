@@ -8,6 +8,7 @@ import (
 )
 
 var path = ""
+
 func TestMain(m *testing.M) {
 	path, _ = filepath.Abs(filepath.Dir(os.Args[0]))
 	retCode := m.Run()
@@ -58,12 +59,33 @@ func TestWrapperFileSystem_ChangeDirectory(t *testing.T) {
 	context := fs.Context()
 	fs.NewFile(context, "test/path/file")
 
+	assert.Equal(t, "/", fs.(*wrapperFileSystem).PresentWorkingDirectory(context).String())
+
 	assert.Nil(t, fs.ChangeDirectory(context, "test"))
-	assert.Equal(t, path + "/mount_cd/test", fs.(*wrapperFileSystem).PresentWorkingDirectory(context))
+	assert.Equal(t, "/test", fs.(*wrapperFileSystem).PresentWorkingDirectory(context).String())
 
 	assert.Nil(t, fs.ChangeDirectory(context, "path"))
-	assert.Equal(t, path + "/mount_cd/test/path", fs.(*wrapperFileSystem).PresentWorkingDirectory(context))
+	assert.Equal(t, "/test/path", fs.(*wrapperFileSystem).PresentWorkingDirectory(context).String())
 
 	assert.Nil(t, fs.ChangeDirectory(context, "/"))
-	assert.Equal(t, path + "/mount_cd", fs.(*wrapperFileSystem).PresentWorkingDirectory(context))
+	assert.Equal(t, "/", fs.(*wrapperFileSystem).PresentWorkingDirectory(context).String())
+}
+
+func TestWrapperFileSystem_Mkdir(t *testing.T) {
+	fs, _ := NewWrapperFileSystem(path + "/mount_mkdir")
+	context := fs.Context()
+
+	assert.Nil(t, fs.Mkdir(context, "test/path/"))
+	assert.True(t, fs.FileExisted(context, "test/path"))
+
+	assert.Nil(t, fs.Mkdir(context, "test2"))
+	assert.Nil(t, fs.ChangeDirectory(context, "test2"))
+
+	assert.Equal(t, "/test2", fs.(*wrapperFileSystem).PresentWorkingDirectory(context).String())
+
+	assert.Nil(t, fs.Mkdir(context, "path/dir"))
+	assert.True(t, fs.FileExisted(context, "path/dir"))
+
+	fs.ChangeDirectory(context, "/")
+	assert.True(t, fs.FileExisted(context, "test2/path/dir"))
 }

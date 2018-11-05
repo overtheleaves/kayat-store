@@ -1,6 +1,24 @@
 package vfs
 
-import "time"
+import (
+	"time"
+	"fmt"
+	"errors"
+)
+
+var (
+	invalidOffsetErr         = errors.New("invalid offset error")
+	illegalFileNameErr       = errors.New("illegal file name")
+	noSuchFileOrDirectoryErr = errors.New("no such file or directory")
+	alreadyMountedErr        = errors.New("filesystem is already mounted")
+	fileExistsErr            = errors.New("file exists")
+	invalidContextErr        = errors.New("invalid context")
+	invalidMountOnPathErr    = errors.New("invalid mount path. mount path should be absolute path")
+	fileReadWriteErr         = errors.New("cannot open file to read/write")
+	overlappedMountedErr     = func(path string) error {
+		return errors.New(fmt.Sprintf("mount path cannot be sub/parent directory of already mounted file system %s", path))
+	}
+)
 
 type VirtualFileSystem interface {
 	NewFile(context *Context, pathname string) 	(File, error)

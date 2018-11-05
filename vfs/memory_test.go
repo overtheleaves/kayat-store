@@ -30,18 +30,6 @@ func TestVirtualFile_ReadWriteAt(t *testing.T) {
 	assert.Equal(t, "123456789", string(res))
 }
 
-func TestPath_Iterator(t *testing.T) {
-	p := NewPath("/test/path/iter/")
-	iter := p.Iterator()
-
-	var i = 0
-
-	for iter.HasNext() {
-		assert.Equal(t, p.paths[i], iter.Value())
-		i++
-	}
-}
-
 func TestFileNode_addFile(t *testing.T) {
 	p1 := NewPath("test/path/add")
 	p2 := NewPath("test/path/add2")
@@ -216,7 +204,7 @@ func TestMemFileSystem_ListSegments(t *testing.T) {
 	expected["test1"] = true
 	expected["test2"] = true
 
-	result1, err1 := fs.ListSegments(context, "")
+	result1, err1 := fs.ListSegments(context, "/")
 
 	assert.Nil(t, err1)
 	assert.Equal(t, 3, len(expected))

@@ -3,6 +3,7 @@ package vfs
 import (
 	"os"
 	"strings"
+	"fmt"
 )
 
 /**
@@ -78,7 +79,7 @@ func (w *wrapperFileSystem) NewFile(context *Context, pathname string) (File, er
 		return nil, &MemFileSystemError{Err: illegalFileNameErr, Op: "NewFile", Path: pathname}
 	}
 
-	fullPath := w.workingFullPathString(context, pathname)
+	fullPath := w.workingDirectory(context, pathname) + w.pathDelimiter + pathname
 	path := strings.TrimSuffix(fullPath, filename)
 
 	// is directory existed?
@@ -113,7 +114,7 @@ func (w *wrapperFileSystem) Remove(context *Context, pathname string) error {
 	}
 
 	// get context's working directory
-	fullPath := w.workingFullPathString(context, pathname)
+	fullPath := w.workingDirectory(context, pathname) + w.pathDelimiter + pathname
 
 	err := os.RemoveAll(fullPath)
 
@@ -125,7 +126,8 @@ func (w *wrapperFileSystem) Remove(context *Context, pathname string) error {
 }
 
 func (w *wrapperFileSystem) OpenFile(context *Context, pathname string)	(File, error) {
-	fullPath := w.workingFullPathString(context, pathname)
+	fullPath := w.workingDirectory(context, pathname) + w.pathDelimiter + pathname
+
 	f, err := os.OpenFile(fullPath, os.O_RDWR, os.ModeAppend)
 
 	if err != nil {
@@ -140,11 +142,22 @@ func (w *wrapperFileSystem) Create(context *Context, pathname string) (File, err
 }
 
 func (w *wrapperFileSystem) Mkdir(context *Context, pathname string) error {
+	if w.FileExisted(context, pathname) {
+		return &WrapperFileSystemError{Err: fileExistsErr, Op: "Mkdir", Path: pathname}
+	} else {
+		fullPath := w.workingDirectory(context, pathname) + w.pathDelimiter + pathname
+		fmt.Println(fullPath)
+		err := os.MkdirAll(fullPath, os.ModePerm)
+		if err != nil {
+			return &WrapperFileSystemError{Err: err, Op: "Mkdir", Path: pathname}
+		}
+	}
+
 	return nil
 }
 
 func (w *wrapperFileSystem) FileExisted(context *Context, pathname string) bool {
-	fullPath := w.workingFullPathString(context, pathname)
+	fullPath := w.workingDirectory(context, pathname) + w.pathDelimiter + pathname
 	_, err := os.Stat(fullPath)
 	return !os.IsNotExist(err)
 }
@@ -158,16 +171,20 @@ func (w *wrapperFileSystem) ChangeDirectory(context *Context, pathname string) e
 	if !w.FileExisted(context, pathname) {
 		return &WrapperFileSystemError{Err: noSuchFileOrDirectoryErr, Op: "ChangeDirectory", Path: pathname}
 	} else {
-		fullPathString := w.workingFullPathString(context, pathname)
-		fullPathString = strings.TrimSuffix(fullPathString, w.pathDelimiter)
-		w.pwd[context] = NewPathWithDelimiter(fullPathString, w.pathDelimiter)
+		if strings.HasPrefix(pathname, w.pathDelimiter) {
+			// replace
+			w.pwd[context] = NewPathWithDelimiter(pathname, w.pathDelimiter)
+		} else {
+			// concat
+			w.pwd[context] = w.pwd[context].Concat(NewPathWithDelimiter(pathname, w.pathDelimiter))
+		}
 		return nil
 	}
 }
 
 func (w *wrapperFileSystem) Context() *Context {
 	context := &Context{}
-	w.pwd[context] = w.mount
+	w.pwd[context] = NewPathWithDelimiter("/", w.pathDelimiter)
 	return context
 }
 
@@ -175,30 +192,18 @@ func (w *wrapperFileSystem) ListSegments(context *Context, pathname string) ([]F
 	return nil, nil
 }
 
-func (w *wrapperFileSystem) PresentWorkingDirectory(context *Context) string {
-	pwd := w.pwd[context]
-	if pwd != nil {
-		return pwd.FullPathString()
-	} else {
-		return ""
-	}
+func (w *wrapperFileSystem) PresentWorkingDirectory(context *Context) *Path {
+	return w.pwd[context]
 }
 
 func (w *wrapperFileSystem) workingDirectory(context *Context, pathname string) string {
 	// if pathname starts with path pathDelimiter (like "/"),
 	// then start on mount root
 	if strings.HasPrefix(pathname, w.pathDelimiter) {
-		return w.mount.FullPathString()
+		return w.mount.String()
 	} else {
-		return w.PresentWorkingDirectory(context)
+		return w.mount.Concat(w.PresentWorkingDirectory(context)).String()
 	}
-}
-
-func (w *wrapperFileSystem) workingFullPathString(context *Context, pathname string) string {
-	wd := w.workingDirectory(context, pathname)
-
-	pathname = strings.TrimPrefix(pathname, w.pathDelimiter)
-	return wd + w.pathDelimiter + pathname
 }
 
 func isDirectoryExist(path string) bool {
