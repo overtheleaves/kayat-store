@@ -115,3 +115,135 @@ func TestVirtualFileSystems_Remove(t *testing.T) {
 	}
 }
 
+func TestVirtualFileSystems_FileExisted(t *testing.T) {
+	vfs, errs := GetVirtualFileSystems(__dir_name_ + "/mount_fileexisted")
+	assertApplyAll(t, vfs, assert.NotNil)
+	assertApplyAll(t, errs, assert.Nil)
+
+	for _, fs := range vfs {
+		context := fs.Context()
+
+		fs.NewFile(context, "test/path/file")
+
+		assert.True(t, fs.FileExisted(context, "test/path/file"))
+		assert.True(t, fs.FileExisted(context, "test/path"))
+		assert.True(t, fs.FileExisted(context, "test"))
+		assert.False(t, fs.FileExisted(context, "test/path/file2"))
+	}
+}
+
+func TestVirtualFileSystems_ChangeDirectory(t *testing.T) {
+	vfs, errs := GetVirtualFileSystems(__dir_name_ + "/mount_cd")
+	assertApplyAll(t, vfs, assert.NotNil)
+	assertApplyAll(t, errs, assert.Nil)
+
+	for _, fs := range vfs {
+		context := fs.Context()
+		fs.NewFile(context, "test/path/file")
+
+		assert.Equal(t, "/", fs.PresentWorkingDirectory(context))
+
+		assert.Nil(t, fs.ChangeDirectory(context, "test"))
+		assert.Equal(t, "/test", fs.PresentWorkingDirectory(context))
+
+		assert.Nil(t, fs.ChangeDirectory(context, "path"))
+		assert.Equal(t, "/test/path", fs.PresentWorkingDirectory(context))
+
+		assert.Nil(t, fs.ChangeDirectory(context, "/"))
+		assert.Equal(t, "/", fs.PresentWorkingDirectory(context))
+	}
+}
+
+func TestVirtualFileSystems_Mkdir(t *testing.T) {
+	vfs, errs := GetVirtualFileSystems(__dir_name_ + "/mount_mkdir")
+	assertApplyAll(t, vfs, assert.NotNil)
+	assertApplyAll(t, errs, assert.Nil)
+
+	for _, fs := range vfs {
+		context := fs.Context()
+
+		assert.Nil(t, fs.Mkdir(context, "test/path/"))
+		assert.True(t, fs.FileExisted(context, "test/path"))
+
+		assert.Nil(t, fs.Mkdir(context, "test2"))
+		assert.Nil(t, fs.ChangeDirectory(context, "test2"))
+
+		assert.Equal(t, "/test2", fs.PresentWorkingDirectory(context))
+
+		assert.Nil(t, fs.Mkdir(context, "path/dir"))
+		assert.True(t, fs.FileExisted(context, "path/dir"), fs.Type())
+
+		fs.ChangeDirectory(context, "/")
+		assert.True(t, fs.FileExisted(context, "test2/path/dir"), fs.Type())
+	}
+}
+
+func TestVirtualFileSystems_OpenFile(t *testing.T) {
+	vfs, errs := GetVirtualFileSystems(__dir_name_ + "/mount_openfile")
+	assertApplyAll(t, vfs, assert.NotNil)
+	assertApplyAll(t, errs, assert.Nil)
+
+	for _, fs := range vfs {
+		context := fs.Context()
+
+		fs.NewFile(context, "/test/path/openfile")
+		file1, err1 := fs.OpenFile(context, "/test/path/openfile")
+		file2, err2 := fs.OpenFile(context, "/test/path/no-such-file")
+
+		assert.NotNil(t, file1)
+		assert.Nil(t, err1)
+
+		assert.Nil(t, file2)
+		assert.NotNil(t, err2)	// no such file error
+	}
+}
+
+func TestVirtualFileSystems_ListSegments(t *testing.T) {
+	vfs, errs := GetVirtualFileSystems(__dir_name_ + "/mount_ls")
+	assertApplyAll(t, vfs, assert.NotNil)
+	assertApplyAll(t, errs, assert.Nil)
+
+	for _, fs := range vfs {
+		context := fs.Context()
+
+		fs.Mkdir(context, "test")
+		fs.Mkdir(context, "test/path1")
+		fs.Mkdir(context, "test/path2")
+		fs.Mkdir(context, "test1")
+		fs.Mkdir(context, "test2")
+
+		expected := make(map[string]bool)
+		expected["test"] = true
+		expected["test1"] = true
+		expected["test2"] = true
+
+		result1, err1 := fs.ListSegments(context, "")
+
+		assert.Nil(t, err1)
+		assert.Equal(t, 3, len(result1), fs.Type())
+		for _, stat := range result1 {
+			assert.True(t, expected[stat.Name()], fs.Type())
+			delete(expected, stat.Name())
+		}
+		assert.Equal(t, 0, len(expected))
+
+		result2, err2 := fs.ListSegments(context, "test3")
+		assert.NotNil(t, err2)	// no such file error
+		assert.Nil(t, result2)
+
+		fs.ChangeDirectory(context, "test")
+		result3, err3 := fs.ListSegments(context, "")
+
+		expected = make(map[string]bool)
+		expected["path1"] = true
+		expected["path2"] = true
+
+		assert.Nil(t, err3)
+		assert.Equal(t, 2, len(result3))
+		for _, stat := range result3 {
+			assert.True(t, expected[stat.Name()])
+			delete(expected, stat.Name())
+		}
+		assert.Equal(t, 0, len(expected))
+	}
+}

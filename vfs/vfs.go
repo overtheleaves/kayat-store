@@ -30,6 +30,8 @@ type VirtualFileSystem interface {
 	ChangeDirectory(context *Context, pathname string) error
 	Context() *Context
 	ListSegments(context *Context, pathname string) ([]FileStat, error)
+	PresentWorkingDirectory(context *Context) string
+	Type() string
 }
 
 type File interface {

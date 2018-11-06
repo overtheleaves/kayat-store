@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"io/ioutil"
+	"time"
 )
 
 var (
@@ -13,6 +14,13 @@ var (
 /**
  os filesystem wrapper
 */
+type wrapperFileStat struct {
+	name string
+	size int64
+	modTime time.Time
+	isDir 	bool
+}
+
 type wrapperFileSystem struct {
 	pwd           map[*Context]*Path
 	mount         *Path
@@ -59,6 +67,33 @@ func (f *wrapperFile) WriteAt(b []byte, off int64) (n int, err error) {
 
 func (f *wrapperFile) Delete() {
 
+}
+
+func (s *wrapperFileStat) Name() string {
+	return s.name
+}
+
+func (s *wrapperFileStat) Size() int64 {
+	return s.size
+}
+
+func (s *wrapperFileStat) ModTime() time.Time {
+	return s.modTime
+}
+
+func (s *wrapperFileStat) IsDir() bool {
+	return s.isDir
+}
+
+func (s *wrapperFileStat) Immutable() FileStat {
+	stat := &wrapperFileStat{
+		name: s.name,
+		size: s.size,
+		modTime: s.modTime,
+		isDir: s.isDir,
+	}
+
+	return stat
 }
 
 func NewWrapperFileSystem(mountOnPath string) (VirtualFileSystem, error) {
@@ -225,10 +260,38 @@ func (w *wrapperFileSystem) Context() *Context {
 }
 
 func (w *wrapperFileSystem) ListSegments(context *Context, pathname string) ([]FileStat, error) {
-	return nil, nil
+
+	fullPath := w.workingDirectory(context, pathname) + w.pathDelimiter + pathname
+
+	// read directory info
+	infos, err := ioutil.ReadDir(fullPath)
+
+	if err != nil {
+		return nil, &WrapperFileSystemError{Err: err, Op: "ls", Path: pathname}
+	}
+
+	fileStats := make([]FileStat, 0)
+	for _, info := range infos {
+		if info.Name() != mountInfoFile {
+			// skip .vfs_mount_info
+
+			fileStats = append(fileStats, &wrapperFileStat{
+				name: info.Name(),
+				isDir: info.IsDir(),
+				size: info.Size(),
+				modTime: info.ModTime(),
+			})
+		}
+	}
+
+	return fileStats, nil
 }
 
-func (w *wrapperFileSystem) PresentWorkingDirectory(context *Context) *Path {
+func (w *wrapperFileSystem) PresentWorkingDirectory(context *Context) string {
+	return w.pwdPath(context).String()
+}
+
+func (w *wrapperFileSystem) pwdPath(context *Context) *Path {
 	return w.pwd[context]
 }
 
@@ -238,8 +301,12 @@ func (w *wrapperFileSystem) workingDirectory(context *Context, pathname string) 
 	if strings.HasPrefix(pathname, w.pathDelimiter) {
 		return w.mount.String()
 	} else {
-		return w.mount.Concat(w.PresentWorkingDirectory(context)).String()
+		return w.mount.Concat(w.pwdPath(context)).String()
 	}
+}
+
+func (w *wrapperFileSystem) Type() string {
+	return "file"
 }
 
 func isDirectoryExist(path string) bool {

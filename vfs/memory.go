@@ -13,6 +13,7 @@ var (
 type fileNode struct {
 	file 	File
 	children map[string]*fileNode
+	parent *fileNode
 }
 
 type virtualFile struct {
@@ -84,6 +85,7 @@ func (n *fileNode) addFile(path *Path, file File, i int) {
 	dir := path.NthPath(i)
 	if n.children[dir] == nil {
 		n.children[dir] = newFileNode(nil)
+		n.children[dir].parent = n
 	}
 
 	if i == path.Len() - 1 {
@@ -100,8 +102,10 @@ func (n *fileNode) addDirectory(path *Path, i int) {
 	}
 
 	dir := path.NthPath(i)
+
 	if n.children[dir] == nil {
 		n.children[dir] = newFileNode(newVirtualDirectory(dir))
+		n.children[dir].parent = n
 	}
 
 	n.children[dir].addDirectory(path, i+1)
@@ -140,8 +144,8 @@ func (n *fileNode) removeFile(path *Path, i int) error {
 		return noSuchFileOrDirectoryErr
 	} else if i == path.Len() - 1 {
 		// remove target
-		n := n.children[dir]
-		n.removeAllFiles()
+		removedNode := n.children[dir]
+		removedNode.removeAllFiles()
 		delete(n.children, dir)
 		return nil
 	} else {
@@ -398,15 +402,15 @@ func (fs *memFileSystem) Create(context *Context, pathname string) (File, error)
 }
 
 func (fs *memFileSystem) Mkdir(context *Context, pathname string) error {
-	path := NewPathWithDelimiter(pathname, fs.pathDelimiter)
 
 	var err error
-
 	wd := fs.workingDirectoryNode(context, pathname)
+	path := NewPathWithDelimiter(pathname, fs.pathDelimiter)
+
 	file := wd.getFile(path, 0)
 	if file == nil {
 		// create new directory
-		fs.rootNode.addDirectory(path, 0)
+		wd.addDirectory(path, 0)
 	} else {
 		err = &MemFileSystemError{Err: fileExistsErr, Op: "MkdirAll", Path: pathname}
 	}
@@ -448,6 +452,27 @@ func (fs *memFileSystem) ListSegments(context *Context, pathname string) ([]File
 		}
 		return result, nil
 	}
+}
+
+func (fs *memFileSystem) PresentWorkingDirectory(context *Context) string {
+	n := fs.PresentWorkingDirectoryNode(context)
+
+	if n == nil {
+		return ""
+	}
+
+	res := make([]string, 0)
+
+	for n != nil && n != fs.rootNode {
+		res = append([]string{n.file.Stat().Name()}, res...)
+		n = n.parent
+	}
+
+	return fs.rootNode.file.Stat().Name() + strings.Join(res, fs.pathDelimiter)
+}
+
+func (fs *memFileSystem) Type() string {
+	return "memory"
 }
 
 func (fs *memFileSystem) PresentWorkingDirectoryNode(context *Context) *fileNode {
