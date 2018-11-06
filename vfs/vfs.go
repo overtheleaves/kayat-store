@@ -13,9 +13,9 @@ var (
 	alreadyMountedErr        = errors.New("filesystem is already mounted")
 	fileExistsErr            = errors.New("file exists")
 	invalidContextErr        = errors.New("invalid context")
-	invalidMountOnPathErr    = errors.New("invalid mount path. mount path should be absolute path")
+	invalidMountOnPathErr    = errors.New("invalid mount path. mount __dir_name_ should be absolute __dir_name_")
 	fileReadWriteErr         = errors.New("cannot open file to read/write")
-	overlappedMountedErr     = func(path string) error {
+	nestedMountedErr         = func(path string) error {
 		return errors.New(fmt.Sprintf("mount path cannot be sub/parent directory of already mounted file system %s", path))
 	}
 )

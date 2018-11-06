@@ -183,13 +183,9 @@ func NewMemoryFileSystemWithPathDelimiter(mountOnPath string, delimiter string) 
 		mountOnPath = mountOnPath[:len(mountOnPath) - 1]
 	}
 
-	overlapped, parentPath := isOverlappedPath(mountOnPath, delimiter)
-	if overlapped {
-		return nil, &MemFileSystemError{Err: overlappedMountedErr(parentPath), Op: "mount", Path: mountOnPath}
-	}
-
-	if memFileSystems[mountOnPath] != nil {
-		return nil, &MemFileSystemError{Err: alreadyMountedErr, Op: "mount", Path: mountOnPath}
+	nested, nestedPath := isNestedPath(mountOnPath, delimiter)
+	if nested {
+		return nil, &MemFileSystemError{Err: nestedMountedErr(nestedPath), Op: "mount", Path: mountOnPath}
 	}
 
 	mfs := &memFileSystem{
@@ -205,7 +201,12 @@ func NewMemoryFileSystemWithPathDelimiter(mountOnPath string, delimiter string) 
 }
 
 // return true, if path is sub/parent directory of mfs that has already mounted.
-func isOverlappedPath(path string, delimiter string) (bool, string) {
+func isNestedPath(path string, delimiter string) (bool, string) {
+
+	if memFileSystems[path] != nil {
+		return true, path
+	}
+
 	for p := range memFileSystems {
 		// path is sub directory of already mounted path?
 		if strings.HasPrefix(path, p) {

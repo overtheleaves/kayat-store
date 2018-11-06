@@ -3,13 +3,16 @@ package vfs
 import (
 	"os"
 	"strings"
-	"fmt"
+	"io/ioutil"
+)
+
+var (
+	mountInfoFile = ".vfs_mount_info"
 )
 
 /**
  os filesystem wrapper
 */
-
 type wrapperFileSystem struct {
 	pwd           map[*Context]*Path
 	mount         *Path
@@ -63,11 +66,45 @@ func NewWrapperFileSystem(mountOnPath string) (VirtualFileSystem, error) {
 }
 
 func NewWrapperFileSystemWithPathDelimiter(mountOnPath string, delimiter string) (VirtualFileSystem, error) {
-	return &wrapperFileSystem{
+
+	if !strings.HasPrefix(mountOnPath, delimiter) {
+		return nil, &WrapperFileSystemError{Err: invalidMountOnPathErr, Op: "mount", Path: mountOnPath}
+	}
+
+	if strings.HasSuffix(mountOnPath, delimiter) {
+		mountOnPath = mountOnPath[:len(mountOnPath) - 1]
+	}
+
+	nested, nestedPath := isNestedFilePath(mountOnPath, delimiter)
+	if nested {
+		return nil, &WrapperFileSystemError{Err: nestedMountedErr(nestedPath), Op: "mount", Path: mountOnPath}
+	}
+
+	wfs := &wrapperFileSystem {
 		pwd:           make(map[*Context]*Path),
 		mount:         NewPathWithDelimiter(mountOnPath, delimiter),
 		pathDelimiter: delimiter,
-	}, nil
+	}
+
+	// is directory existed?
+	if !isDirectoryExist(mountOnPath) {
+		// if not, create directory first
+		err := os.MkdirAll(mountOnPath, os.ModePerm)
+		if err != nil {
+			return nil, &WrapperFileSystemError{Err: err, Op: "mount", Path: mountOnPath}
+		}
+	}
+
+	// create mount info file
+	f, err := os.Create(mountOnPath + delimiter + mountInfoFile)
+	if err != nil {
+		return nil, &WrapperFileSystemError{Err: err, Op: "mount", Path: mountOnPath}
+	} else {
+		f.Write([]byte(mountOnPath))
+		f.Close()
+	}
+
+	return wfs, nil
 }
 
 func (w *wrapperFileSystem) NewFile(context *Context, pathname string) (File, error) {
@@ -76,7 +113,7 @@ func (w *wrapperFileSystem) NewFile(context *Context, pathname string) (File, er
 	filename := filepath.FileName()
 
 	if filename == "" {
-		return nil, &MemFileSystemError{Err: illegalFileNameErr, Op: "NewFile", Path: pathname}
+		return nil, &WrapperFileSystemError{Err: illegalFileNameErr, Op: "NewFile", Path: pathname}
 	}
 
 	fullPath := w.workingDirectory(context, pathname) + w.pathDelimiter + pathname
@@ -146,7 +183,6 @@ func (w *wrapperFileSystem) Mkdir(context *Context, pathname string) error {
 		return &WrapperFileSystemError{Err: fileExistsErr, Op: "Mkdir", Path: pathname}
 	} else {
 		fullPath := w.workingDirectory(context, pathname) + w.pathDelimiter + pathname
-		fmt.Println(fullPath)
 		err := os.MkdirAll(fullPath, os.ModePerm)
 		if err != nil {
 			return &WrapperFileSystemError{Err: err, Op: "Mkdir", Path: pathname}
@@ -197,7 +233,7 @@ func (w *wrapperFileSystem) PresentWorkingDirectory(context *Context) *Path {
 }
 
 func (w *wrapperFileSystem) workingDirectory(context *Context, pathname string) string {
-	// if pathname starts with path pathDelimiter (like "/"),
+	// if pathname starts with __dir_name_ pathDelimiter (like "/"),
 	// then start on mount root
 	if strings.HasPrefix(pathname, w.pathDelimiter) {
 		return w.mount.String()
@@ -210,3 +246,67 @@ func isDirectoryExist(path string) bool {
 	fileinfo, err := os.Stat(path)
 	return !os.IsNotExist(err) && fileinfo != nil && fileinfo.IsDir()
 }
+
+func isNestedFilePath(path string, delimiter string) (bool, string) {
+
+	// find path already mounted
+	info, _ := os.Stat(path + delimiter + mountInfoFile)
+	if info != nil && info.Name() == mountInfoFile {
+		return true, path
+	}
+
+	// find children paths already mounted
+	found, foundPath := findMountedChildren(path, delimiter)
+	if found {
+		return found, foundPath
+	}
+
+	// find parent paths already mounted
+	p := NewPathWithDelimiter(path, delimiter)
+
+	for i := p.Len() - 1; i >= 0; i-- {
+		path = strings.TrimSuffix(path, p.NthPath(i))
+		info, err := os.Stat(path + mountInfoFile)
+
+		if err != nil {
+			// cannot retrieve anymore
+			return false, ""
+		}
+
+		if info != nil && info.Name() == mountInfoFile {
+			return true, path
+		}
+	}
+
+	return false, ""
+}
+
+func findMountedChildren(path string, delimiter string) (bool, string) {
+	info, err := os.Stat(path)
+
+	if err != nil {
+		return false, ""	// cannot retrieve anymore
+	}
+
+	// find .vfs_mount_info file
+	if info.Name() == mountInfoFile {
+		return true, path
+	}
+
+	if info.IsDir() {
+		infos, err := ioutil.ReadDir(path)
+		if err != nil {
+			return false, "" // cannot retrieve anymore
+		} else {
+			for _, i := range infos {
+				found, path := findMountedChildren(path + delimiter + i.Name(), delimiter)
+				if found {
+					return found, path
+				}
+			}
+		}
+	}
+
+	return false, ""
+}
+
